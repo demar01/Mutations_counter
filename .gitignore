@@ -1,5 +1,132 @@
-# History files
-.Rhistory
+library(GenomicRanges)
+library(xlsx)
 
-# Example code in package build process
-*-Ex.R
+
+#Read .bed file containing point mutations (PM) (chr and coordinate)
+kkk=read.xlsx("mutationfile.xlsx")
+NCBI37=read.table("NCBI37.txt")
+names(NCBI37)=c("chr","coordinate")
+
+
+#bed2Granges
+PM=GRanges(seqnames=paste("chr",kkk[,3],sep=""),ranges=IRanges(start= kkk[,4],end= kkk[,4]))
+PM=PM[order(as.factor(seqnames(PM)), as.factor(start(PM)))]
+
+seqlevels(BP) <- sub("chrX", "chr23", seqlevels(BP))
+seqlevels(BP) <- sub("chrY", "chr24", seqlevels(BP))
+
+#split chromosomes and calculate the distance(pm)
+BPL=GRangesList()
+for(j in seq(1:24)){
+cat("iteration:", j, " \n")
+BPL[[j]]=sort(BP[which(as.numeric(as.character(seqnames(BP))== paste("chr",j,sep=""))==1)])}
+
+#real distance
+d_C=list()
+for(j in 1:24){
+cat("iteration:", j, " \n")
+d_C[[j]]=list()
+if( length(BPL[[j]])<1){d_C[[j]]=NA}
+else{
+for(i in 1:(length(BPL[[j]])-1)){d_C[[j]][[i]]=abs(start(BPL[[j]])[i]-start(BPL[[j]])[i+1])}}
+#d_C[[j]]= sort(unlist(d_C[[j]]))
+d_C[[j]]= (unlist(d_C[[j]]))
+
+}
+
+#create simulated
+CSim_list=list()
+for(j in 1:24){
+cat("iteration:", j, " \n")
+CSim_list[[j]]=sample(1:NCBI37$coordinate[j],length(BPL[[j]]),replace=FALSE)}
+CSim=GRangesList()
+for(j in 1:24){
+cat("iteration:", j, " \n")
+CSim[[j]]=sort(GRanges(seqnames=as.character(seqnames(BPL[[j]])),ranges=IRanges(start= CSim_list[[j]],end=CSim_list[[j]])))}
+
+
+
+#simulated distance
+s_C=list()
+for(j in 1:24){
+cat("iteration:", j, " \n")
+s_C[[j]]=list()
+if( length(CSim[[j]])<1){CSim[[j]]=NA}
+else{
+for(i in 1:(length(CSim[[j]])-1)){s_C[[j]][[i]]=abs(start(CSim[[j]])[i]-start(CSim[[j]])[i+1])}}
+s_C[[j]]= sort(unlist(s_C[[j]]))
+}
+
+
+PermTest <- function(x, y, R=999, testfun=ks.test) {
+  z <- c(x, y)  # pooled sample
+  myfun <- function(a, b) suppressWarnings(unname(testfun(a, b)$statistic))
+  DoIt <- function() {
+    i <- sample(length(z), length(x))
+    myfun(z[i], z[-i])  # z[-i] is everything *except* the "i" elements of z
+  }
+  pstats <- replicate(R, DoIt())
+  stat <- myfun(x, y)
+  c("p-value" = mean(c(stat, pstats) >= stat))
+}
+
+RKataegis=d_C
+SKataegis=s_C
+
+pvalueC=c()
+for(j in 1:24){
+cat("iteration:", j, " \n")
+pvalueC[j]=PermTest(RKataegis[[j]], SKataegis[[j]])}
+
+pvalueC=c()
+for(j in 1:24){
+cat("iteration:", j, " \n")
+pvalueC[j]=print(ks.test(RKataegis[[j]], SKataegis[[j]],alternative="greater"))}
+
+
+#colors for transitions/transversion mutations
+vector_colores=rep(NA, 10268)
+vector_colores[which(as.character(kkk[,6])=="C" & as.character(kkk[,7])=="A")]=1
+vector_colores[which(as.character(kkk[,6])=="G" & as.character(kkk[,7])=="T")]=1
+vector_colores[which(as.character(kkk[,6])=="C" & as.character(kkk[,7])=="G")]=2
+vector_colores[which(as.character(kkk[,6])=="G" & as.character(kkk[,7])=="C")]=2
+vector_colores[which(as.character(kkk[,6])=="C" & as.character(kkk[,7])=="T")]=3
+vector_colores[which(as.character(kkk[,6])=="G" & as.character(kkk[,7])=="A")]=3
+vector_colores[which(as.character(kkk[,6])=="T" & as.character(kkk[,7])=="A")]=4
+vector_colores[which(as.character(kkk[,6])=="A" & as.character(kkk[,7])=="T")]=4
+vector_colores[which(as.character(kkk[,6])=="T" & as.character(kkk[,7])=="C")]=5
+vector_colores[which(as.character(kkk[,6])=="A" & as.character(kkk[,7])=="G")]=5
+vector_colores[which(as.character(kkk[,6])=="T" & as.character(kkk[,7])=="G")]=6
+vector_colores[which(as.character(kkk[,6])=="A" & as.character(kkk[,7])=="C")]=6
+z.cols <- cut(vector_colores,6, labels = c("blue", "black", "red","purple","yellow","green"))
+z.cols=z.cols[-which(d_C==100)]
+
+#load again d_C. This should be in the current working enviroment.
+load("d_C.rda")
+d_C=unlist(d_C)
+d_C[ (d_C)==1]=0
+d_C=d_C[-length(d_C)]
+
+#change the axis values for correct ploting
+z=c(1,100,10000,1000000,100000000)
+Z=c(100,10000,1000000,100000000)
+for ( i in 1:4){
+    p=i-1
+    value=1*Z[i]
+    d_C[ d_C<value & d_C>(value/100)]<-d_C[ d_C<value & d_C>(value/100)]/value+p}
+
+d_C=d_C[-which(d_C==100)]
+
+
+#final plot. This is done with default R plot function. For better representation, use  geom_point function form ggplot2.
+
+pdf("scatter_plot_kataegis.pdf",width =18, height =16)
+par(mfrow=c(2.2,2))
+plot(seq( 1:length( d_C)), d_C, ylim=c(0,4),xlab=c("Mutation number"),ylab=c("Intermutation distance (bp)"), col = as.character(z.cols),pch=19,cex = .1, cex.lab = 1.5)
+axis(side=1,at=c(1,2,3,4,5,6),labels=c("0","2000","4000","6000","8000","10000"), cex.axis = 1.26)
+axis(2, at=0:5,labels=z, col.axis="black", las=2, cex.axis=1.13)
+text(x =c(1.18,1.82,2.57,3.31) , y = c(rep(9,4)), labels = paste("p-value=",mylabel,sep=""),font=2, cex=1.7)
+dev.off()
+
+
+
